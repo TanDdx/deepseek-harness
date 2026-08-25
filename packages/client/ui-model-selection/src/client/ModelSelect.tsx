@@ -16,10 +16,10 @@ import {
   type KeyboardEvent, type FocusEvent,
 } from 'react'
 import clsx from 'clsx'
-import type { ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ModelProviderGroup, ModelReasoningEffort, ModelSelection } from '@deepseek-ai/dsh-api-remotes/client'
 import {
   IconCheckOutline16, IconChevronDownOutline14, IconChevronRightOutline14,
-  IconWarningOutline16, Toast,
+  IconCloseFill14, IconSearchOutline16, IconWarningOutline16, Toast,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ModelSelectInjected } from './slots.ts'
@@ -52,6 +52,8 @@ export function ModelSelect(
   )
   const [open, setOpen] = useState(false)
   const [pane, setPane] = useState<Pane>('root')
+  // The model pane's search text; empty means every row shows.
+  const [query, setQuery] = useState('')
   // The in-menu error strip serves catalog loads (its Retry re-runs the
   // load); a rejected SELECTION announces through the transient toast
   // instead, so the strip renders only while the latest failure-capable
@@ -61,6 +63,7 @@ export function ModelSelect(
   const toastSeq = useRef(0)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([])
   const id = useId()
 
@@ -76,6 +79,7 @@ export function ModelSelect(
           : { reasoningEffort: model.reasoning.defaultEffort },
       } satisfies ModelSelection,
     }))), [state.groups])
+  const tokens = useMemo(() => query.trim().toLowerCase().split(/\s+/).filter(Boolean), [query])
   const selectedIndex = state.current === null
     ? -1
     : choices.findIndex(c => c.selection.provider === state.current?.provider && c.selection.model === state.current.model)
@@ -115,6 +119,11 @@ export function ModelSelect(
     }
   }, [available, load])
 
+  // Entering the model pane hands focus to search so typing starts at once.
+  useEffect(() => {
+    if (open && pane === 'model') searchRef.current?.focus()
+  }, [open, pane])
+
   useEffect(() => {
     if (!open) return
     const closeOutside = (event: MouseEvent): void => {
@@ -128,6 +137,7 @@ export function ModelSelect(
 
   const show = (): void => {
     setPane('root')
+    setQuery('')
     setOpen(true)
     reload()
   }
@@ -202,6 +212,42 @@ export function ModelSelect(
     void select(selection).then(settleSelection)
   }
 
+  /** Whether one model row survives the current search tokens (empty keeps all). */
+  const matchesQuery = (group: ModelProviderGroup, model: ModelProviderGroup['models'][number]): boolean => {
+    if (tokens.length === 0) return true
+    const haystack = `${group.name} ${group.id} ${model.name} ${model.id} ${model.description ?? ''}`.toLowerCase()
+    return tokens.every(token => haystack.includes(token))
+  }
+  // Enter-in-search target: the first surviving row in directory order.
+  let firstMatch: ModelSelection | undefined
+  for (const group of state.groups) {
+    const hit = group.models.find(model => matchesQuery(group, model))
+    if (hit !== undefined) {
+      firstMatch = { provider: group.id, model: hit.id }
+      break
+    }
+  }
+
+  const onSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>): void => {
+    if (event.key === 'Escape' && query !== '') {
+      // Clear the query first; a second Escape reaches the root handler and
+      // resumes the shipped back-out ladder (pane to root, then close).
+      event.preventDefault()
+      event.stopPropagation()
+      setQuery('')
+      return
+    }
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      itemRefs.current[0]?.focus()
+      return
+    }
+    if (event.key === 'Enter' && firstMatch !== undefined) {
+      event.preventDefault()
+      choose(firstMatch)
+    }
+  }
+
   const modelLabel = currentChoice?.model.name ?? t('trigger.fallback')
   const triggerLabel = effortLabel === undefined ? modelLabel : `${modelLabel} · ${effortLabel}`
   const triggerAria = currentChoice === undefined
@@ -251,7 +297,7 @@ export function ModelSelect(
         >
           {pane === 'root' && (
             <>
-              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model') }}>
+              <button ref={itemRef()} type="button" role="menuitem" className={css.cell} onClick={() => { setPane('model'); setQuery('') }}>
                 <span className={css.cellLabel}>{t('menu.model')}</span>
                 <span className={css.cellValue}>{modelLabel}</span>
                 <IconChevronRightOutline14 className={css.cellChevron} />
@@ -268,6 +314,29 @@ export function ModelSelect(
 
           {pane === 'model' && (
             <>
+              <div className={css.search}>
+                <IconSearchOutline16 className={css.searchIcon} />
+                <input
+                  ref={searchRef}
+                  type="text"
+                  className={css.searchInput}
+                  value={query}
+                  placeholder={t('search.placeholder')}
+                  aria-label={t('search.placeholder')}
+                  onChange={(event) => { setQuery(event.target.value) }}
+                  onKeyDown={onSearchKeyDown}
+                />
+                {query !== '' && (
+                  <button
+                    type="button"
+                    className={css.searchClear}
+                    aria-label={t('search.clear')}
+                    onClick={() => { setQuery(''); searchRef.current?.focus() }}
+                  >
+                    <IconCloseFill14 />
+                  </button>
+                )}
+              </div>
               {state.status === 'loading' && (
                 <div className={css.status}>{t('status.loading')}</div>
               )}
@@ -285,11 +354,13 @@ export function ModelSelect(
               ))}
               <div className={clsx(css.groups, 'scrollable')}>
                 {state.groups.map((group) => {
+                  const models = group.models.filter(model => matchesQuery(group, model))
+                  if (models.length === 0) return null
                   const headingId = `${id}-${group.id}`
                   return (
                     <section role="group" aria-labelledby={headingId} className={css.group} key={group.id}>
                       <div className={css.groupTitle} id={headingId}>{group.name}</div>
-                      {group.models.map((model) => {
+                      {models.map((model) => {
                         const selected = state.current?.provider === group.id && state.current.model === model.id
                         return (
                           <button
@@ -321,6 +392,9 @@ export function ModelSelect(
               </div>
               {state.status === 'ready' && choices.length === 0 && (
                 <div className={css.empty}>{t('empty.models')}</div>
+              )}
+              {state.status === 'ready' && choices.length > 0 && firstMatch === undefined && (
+                <div className={css.empty}>{t('empty.match', { query: query.trim() })}</div>
               )}
             </>
           )}

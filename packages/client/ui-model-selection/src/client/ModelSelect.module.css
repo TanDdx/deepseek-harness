@@ -104,6 +104,64 @@
   line-height: 20px;
 }
 
+/* Model-pane search: a filled well above the groups, standard focus ring on
+ * :focus-within; the input inherits the menu card's typography. */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin: 2px 2px 4px;
+  padding: 0 8px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.search:focus-within {
+  box-shadow: 0 0 0 2px var(--dsw-alias-border-l3);
+}
+
+.searchIcon {
+  flex: 0 0 auto;
+  color: var(--dsw-alias-label-caption);
+}
+
+.searchInput {
+  min-width: 0;
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.searchInput::placeholder {
+  color: var(--dsw-alias-label-caption);
+}
+
+.searchClear {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-caption);
+  cursor: pointer;
+}
+
+.searchClear:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
 .error,
 .warning {
   display: flex;

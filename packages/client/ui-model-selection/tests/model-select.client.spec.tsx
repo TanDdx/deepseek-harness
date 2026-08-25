@@ -182,3 +182,83 @@ describe('ModelSelect reasoning effort', () => {
     expect(load).not.toHaveBeenCalled()
   })
 })
+
+describe('ModelSelect model search', () => {
+  /** Open the drilled-in model pane over a two-model catalog. */
+  function searchBench() {
+    const groups = [{
+      id: 'deepseek-official',
+      name: 'DeepSeek',
+      models: [
+        { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', reasoning },
+        { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro' },
+      ],
+    }]
+    const directory = createSnapshotStore<ModelDirectoryState>(state({ groups }))
+    const select = vi.fn(async (selection: ModelSelection) => {
+      directory.set(state({ groups, current: selection }))
+      return true
+    })
+    render(<ModelSelect
+      locked={false}
+      available
+      directory={directory}
+      load={vi.fn()}
+      select={select}
+      t={t}
+    />)
+    fireEvent.click(screen.getByRole('button', { name: /选择模型|当前/ }))
+    fireEvent.click(screen.getByRole('menuitem', { name: /模型/ }))
+    return { select }
+  }
+
+  it('filters the provider-grouped list as the query changes', () => {
+    searchBench()
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(2)
+
+    const input = screen.getByPlaceholderText('搜索模型或提供方…')
+    fireEvent.change(input, { target: { value: 'pro' } })
+    expect(screen.getAllByRole('menuitemradio').map(item => item.textContent))
+      .toEqual(['DeepSeek-V4-Pro'])
+
+    // The provider group's own name is part of every row's haystack.
+    fireEvent.change(input, { target: { value: 'deepseek' } })
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(2)
+
+    fireEvent.change(input, { target: { value: '' } })
+    expect(screen.getAllByRole('menuitemradio')).toHaveLength(2)
+  })
+
+  it('Enter in the search input submits the first match and closes', async () => {
+    const { select } = searchBench()
+    const input = screen.getByPlaceholderText('搜索模型或提供方…')
+    fireEvent.change(input, { target: { value: 'pro' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(select).toHaveBeenCalledWith({ provider: 'deepseek-official', model: 'deepseek-v4-pro' })
+    })
+    await waitFor(() => {
+      expect(screen.queryByRole('menu')).toBeNull()
+    })
+  })
+
+  it('shows a no-match message and Escape clears the query before leaving', () => {
+    searchBench()
+    const input = screen.getByPlaceholderText('搜索模型或提供方…')
+    fireEvent.change(input, { target: { value: 'zzz' } })
+    expect(screen.queryByRole('menuitemradio')).toBeNull()
+    expect(screen.getByText('没有匹配「zzz」的模型')).toBeTruthy()
+
+    // First Escape clears the query; the pane stays put.
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.getByPlaceholderText('搜索模型或提供方…')).toBeTruthy()
+    expect(screen.queryByText(/没有匹配/)).toBeNull()
+
+    // Then the shipped backing-out ladder resumes: pane to root, then close.
+    fireEvent.keyDown(screen.getByPlaceholderText('搜索模型或提供方…'), { key: 'Escape' })
+    expect(screen.getByRole('menuitem', { name: /模型/ })).toBeTruthy()
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+    expect(screen.queryByRole('menu')).toBeNull()
+  })
+})
