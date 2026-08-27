@@ -156,8 +156,13 @@ export async function* translate(payloads: AsyncIterable<string>): AsyncGenerato
           toolBlocks.set(call.index, block)
           yield { type: 'block-start', index: block.index, blockType: 'tool-call' }
         }
-        if (call.id !== undefined) block.callId = call.id
-        if (call.function?.name !== undefined) block.name = call.function.name
+        // Gateways such as the Xiaomi/MiMo gateway emit *explicit* `null`
+        // for id/name on continuation chunks (instead of omitting them like
+        // the OpenAI/DeepSeek reference stream). A `null` must be treated as
+        // "no value in this chunk" and skipped, exactly like `undefined`,
+        // otherwise the accumulated real id/name gets clobbered to null.
+        if (call.id != null) block.callId = call.id
+        if (call.function?.name != null) block.name = call.function.name
         const fragment = call.function?.arguments ?? ''
         block.text += fragment
         yield {

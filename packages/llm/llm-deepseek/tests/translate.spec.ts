@@ -347,4 +347,20 @@ describe('translate: defensive tool-call branches', () => {
     )))
     expect(chunks[1]).toEqual({ type: 'tool-call-delta', index: 0, id: 'c', argumentsDelta: '' })
   })
+
+  it('keeps id/name when continuation deltas carry explicit null (Xiaomi/MiMo gateway)', async () => {
+    const chunks = await collect(translate(feed(
+      firstChunk,
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: 'call_2868bc', type: 'function', function: { name: 'listFiles', arguments: '' } }] } }] },
+      // Xiaomi/MiMo gateway sends explicit null for id and function.name on every continuation delta.
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: null, function: { name: null, arguments: '{"path"' } }] } }] },
+      { choices: [{ delta: { tool_calls: [{ index: 0, id: null, function: { name: null, arguments: ': "/"}' } }] } }] },
+      { choices: [{ delta: {}, finish_reason: 'tool_calls' }] },
+      DONE,
+    )))
+    const ends = chunks.filter(chunk => chunk.type === 'block-end')
+    expect(ends).toEqual([
+      { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'call_2868bc', name: 'listFiles', arguments: '{"path": "/"}' } },
+    ])
+  })
 })
